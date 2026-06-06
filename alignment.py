@@ -3,10 +3,10 @@ alignment.py
 ------------
 Matches hooks ↔ lugs and computes alignment status.
 
-Uses:
-✔ hook_tip (from model)
-✔ lug center
-✔ robust pairing + safe checks
+✔ Uses hook_tip (from model)
+✔ Uses lug bounding box (NOT just center)
+✔ Alignment = tip inside lug (REAL WORLD LOGIC)
+✔ Threshold only used for direction guidance
 """
 
 import numpy as np
@@ -59,13 +59,18 @@ def compute_alignment(
     hook: dict,
     lug: dict,
     threshold: int = 30,
+    margin: int = 5,   # 🔥 tolerance for real-world noise
 ) -> dict:
     """
-    Compute alignment using hook_tip and lug center.
+    Compute alignment using:
+    ✔ hook tip
+    ✔ lug bounding box (NOT center-only)
+
+    Alignment condition:
+    ✔ Tip must be inside lug box (with margin)
     """
 
-    hook_tip = hook.get("tip")   # 🔥 from model
-    lug_center = _bbox_center(lug)
+    hook_tip = hook.get("tip")
 
     # ── Safety check ─────────────────────────────────────
     if hook_tip is None:
@@ -77,12 +82,25 @@ def compute_alignment(
             "direction": "Tip missing",
         }
 
-    dx = float(hook_tip[0]) - float(lug_center[0])
-    dy = float(hook_tip[1]) - float(lug_center[1])
+    tx, ty = hook_tip
+    lx1, ly1, lx2, ly2 = lug["bbox"]
+
+    # ── Compute center for direction logic ───────────────
+    lug_center = _bbox_center(lug)
+
+    dx = float(tx) - float(lug_center[0])
+    dy = float(ty) - float(lug_center[1])
     distance = float(np.hypot(dx, dy))
 
-    # ── Alignment check ──────────────────────────────────
-    if abs(dx) < threshold and abs(dy) < threshold:
+    # ────────────────────────────────────────────────────
+    # 🔥 REAL ALIGNMENT CHECK (POSITION BASED)
+    # ────────────────────────────────────────────────────
+    inside = (
+        lx1 - margin <= tx <= lx2 + margin and
+        ly1 - margin <= ty <= ly2 + margin
+    )
+
+    if inside:
         return {
             "dx": round(dx, 1),
             "dy": round(dy, 1),
@@ -91,7 +109,9 @@ def compute_alignment(
             "direction": "Aligned",
         }
 
-    # ── Direction logic ──────────────────────────────────
+    # ────────────────────────────────────────────────────
+    # Direction logic (only if NOT aligned)
+    # ────────────────────────────────────────────────────
     h_dir = ""
     v_dir = ""
 
