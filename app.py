@@ -131,12 +131,15 @@ class VideoProcessor:
         self.conf       = conf
         self.smooth_n   = smooth_n
 
-        self._frame_buf:     deque[bytes]  = deque(maxlen=4)
+        self._frame_buf:     deque[bytes]  = deque(maxlen=2)
         self._alignment_buf: list[dict]   = []
         self._running: bool = False
         self._done:    bool = False
         self._lock = threading.Lock()
         self._thread: Optional[threading.Thread] = None
+        self._last_frame_time: float = 0
+        self._target_fps: int = 30
+        self._target_fps: int = 30
 
     # ── Public API ─────────────────────────────────────────────────────────
     def start(self) -> None:
@@ -188,6 +191,13 @@ class VideoProcessor:
                 with self._lock:
                     self._frame_buf.append(jpeg.tobytes())
                     self._alignment_buf = alignment
+
+                # Frame rate limiter: target ~30 FPS
+                elapsed = time.time() - self._last_frame_time
+                target_interval = 1.0 / self._target_fps
+                if elapsed < target_interval:
+                    time.sleep(target_interval - elapsed)
+                self._last_frame_time = time.time()
 
         finally:
             cap.release()
