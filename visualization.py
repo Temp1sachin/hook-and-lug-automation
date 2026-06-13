@@ -14,6 +14,7 @@ Colour legend
 
 import cv2
 import numpy as np
+from alignment import _hook_anchor
 
 # ── Palette ───────────────────────────────────────────────────────────────────
 _HOOK_BOX   = (0,  165, 255)   # BGR amber-orange
@@ -111,8 +112,18 @@ def draw_annotations(
     # ── Draw all paired hook-lug annotations ───────────────────────────────
     for hook, lug in pairs:
         hx1, hy1, hx2, hy2 = hook["bbox"]
-        tip     = hook.get("tip")
+        # Compute synthetic anchor for the hook (midpoint slightly lower)
+        tip     = _hook_anchor(hook)
         center  = lug.get("center")
+        # compute nearest point on lug bbox to the tip (visualizes alignment logic)
+        lug_x1, lug_y1, lug_x2, lug_y2 = lug["bbox"]
+        lug_contact = None
+        if tip is not None:
+            tx = tip[0]
+            ty = tip[1]
+            cx = min(max(int(tx), lug_x1), lug_x2)
+            cy = min(max(int(ty), lug_y1), lug_y2)
+            lug_contact = (float(cx), float(cy))
         al      = hook.get("alignment", {})
         status  = al.get("status", "UNKNOWN")
 
@@ -124,28 +135,30 @@ def draw_annotations(
         # Hook bounding box
         _label_box(img, hx1, hy1, hx2, hy2, _HOOK_BOX, f"Hook {hook['conf']:.2f}")
 
-        # Connecting line + dx/dy label
-        if tip and center:
+        # Connecting line + dx/dy label — draw to bbox contact if available
+        if tip is not None and lug_contact is not None:
             cv2.line(
                 img,
                 (int(tip[0]),    int(tip[1])),
-                (int(center[0]), int(center[1])),
+                (int(lug_contact[0]), int(lug_contact[1])),
                 line_color, 2, cv2.LINE_AA,
             )
             dx, dy = al.get("dx"), al.get("dy")
             if dx is not None:
                 _midpoint_label(
-                    img, tip, center,
-                    f"dx={dx:+.0f}  dy={dy:+.0f}",
+                    img, tip, lug_contact,
+                    f"dx={dx:+.0f}mm  dy={dy:+.0f}mm",
                     text_color,
                 )
 
-        # Hook tip (red dot)
-        if tip:
+        # Hook synthetic anchor (red dot)
+        if tip is not None:
             _dot(img, tip[0], tip[1], _HOOK_TIP)
 
-        # Lug centre (cyan dot) — re-draw on top of line
-        if center:
+        # Lug contact point (cyan dot) — re-draw on top of line; fallback to centre
+        if lug_contact is not None:
+            _dot(img, lug_contact[0], lug_contact[1], _LUG_CTR)
+        elif center:
             _dot(img, center[0], center[1], _LUG_CTR)
 
         # Status badge below hook box
@@ -159,9 +172,9 @@ def draw_annotations(
         if id(hook) in paired_hook_ids:
             continue
         hx1, hy1, hx2, hy2 = hook["bbox"]
-        tip = hook.get("tip")
+        tip = _hook_anchor(hook)
         _label_box(img, hx1, hy1, hx2, hy2, _HOOK_BOX, f"Hook {hook['conf']:.2f}")
-        if tip:
+        if tip is not None:
             _dot(img, tip[0], tip[1], _HOOK_TIP)
         _badge(img, hx1, hy2 + 6, "No Lug Matched", _BG_UNK)
 

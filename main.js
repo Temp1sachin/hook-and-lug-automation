@@ -1,5 +1,5 @@
 /* ─────────────────────────────────────────────────────────────
-  SIGHT  •  main.js
+  S.I.G.H.T.  •  main.js
    ───────────────────────────────────────────────────────────── */
 
 "use strict";
@@ -266,9 +266,9 @@ function renderStatusList(alignments) {
     const dirCls    = cls;
     const badgeTxt  = al.status || "UNKNOWN";
     const direction = al.direction || "—";
-    const dx        = al.dx   != null ? (al.dx >= 0 ? "+" : "") + al.dx   + " px" : "—";
-    const dy        = al.dy   != null ? (al.dy >= 0 ? "+" : "") + al.dy   + " px" : "—";
-    const dist      = al.distance != null ? al.distance + " px" : "—";
+    const dx        = al.dx   != null ? (al.dx >= 0 ? "+" : "") + al.dx   + " mm" : "—";
+    const dy        = al.dy   != null ? (al.dy >= 0 ? "+" : "") + al.dy   + " mm" : "—";
+    const dist      = al.distance != null ? al.distance + " mm" : "—";
 
     return `
       <div class="status-card ${cls}">

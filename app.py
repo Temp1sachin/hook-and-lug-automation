@@ -1,7 +1,7 @@
 """
 app.py
 ------
-Flask web application for SIGHT (System for Intelligent Guidance of Hook Trajectory).
+Flask web application for S.I.G.H.T. (System for Intelligent Guidance of Hook Trajectory).
 
 Endpoints
 ---------
@@ -15,6 +15,7 @@ POST /stop_video/<vid_id>     → Stop & cleanup a video stream
 """
 
 import base64
+import gc
 import os
 import threading
 import time
@@ -30,6 +31,11 @@ from alignment import compute_alignment, match_hooks_lugs
 from detection import HookLugDetector
 from visualization import draw_annotations
 
+try:
+    import torch
+except ImportError:
+    torch = None
+
 # ── App setup ─────────────────────────────────────────────────────────────────
 app = Flask(__name__, template_folder=".", static_folder=".", static_url_path="")
 app.config["MAX_CONTENT_LENGTH"] = 500 * 1024 * 1024  # 500 MB
@@ -43,7 +49,8 @@ _detector: Optional[HookLugDetector] = None
 _detector_lock = threading.Lock()
 
 
-def get_detector(model_path: str = "best.pt") -> HookLugDetector:
+def get_detector(model_path: Optional[str] = None) -> HookLugDetector:
+    model_path = model_path or app.config.get("MODEL_PATH", "best.pt")
     global _detector
     with _detector_lock:
         if _detector is None:
@@ -58,33 +65,32 @@ def process_frame(
     conf: float = 0.25,
 ) -> tuple[np.ndarray, list[dict]]:
 
+    # ── Downscale for inference (save memory) ─────────────────
+    h_orig, w_orig = frame.shape[:2]
+    scale = 0.6  # Reduce resolution to 60% for inference
+    h_small = int(h_orig * scale)
+    w_small = int(w_orig * scale)
+    frame_small = cv2.resize(frame, (w_small, h_small), interpolation=cv2.INTER_LINEAR)
+    
     det        = get_detector()
-    detections = det.detect(frame, conf_threshold=conf)
+    detections = det.detect(frame_small, conf_threshold=conf)
+    
+    # ── Clear GPU memory after inference ──────────────────────
+    if torch is not None:
+        torch.cuda.empty_cache()
+    
+    # ── Scale bounding boxes back to original size ────────────
+    for det in detections:
+        if "bbox" in det:
+            x1, y1, x2, y2 = det["bbox"]
+            det["bbox"] = [int(x1 / scale), int(y1 / scale), int(x2 / scale), int(y2 / scale)]
 
     # ── Split detections ─────────────────────────────
     hooks = [d for d in detections if d["label"] == "hook"]
     lugs  = [d for d in detections if d["label"] == "lug"]
-    tips  = [d for d in detections if d["label"] == "hook_tip"]  # 🔥 NEW
 
-    # ── Assign tip to each hook (MODEL-BASED) ────────
-    for h in hooks:
-        hx = (h["bbox"][0] + h["bbox"][2]) // 2
-        hy = (h["bbox"][1] + h["bbox"][3]) // 2
-
-        best_tip = None
-        best_dist = float("inf")
-
-        for t in tips:
-            tx = (t["bbox"][0] + t["bbox"][2]) // 2
-            ty = (t["bbox"][1] + t["bbox"][3]) // 2
-
-            d = (hx - tx)**2 + (hy - ty)**2
-
-            if d < best_dist:
-                best_dist = d
-                best_tip = (tx, ty)
-
-        h["tip"] = best_tip   # 🔥 THIS IS THE KEY FIX
+    # ── We no longer populate a 'tip' field; alignment uses a synthetic
+    #     hook anchor (midpoint slightly lower) computed in alignment.py
 
     # ── Lug centre ───────────────────────────────────
     for l in lugs:
@@ -111,6 +117,10 @@ def process_frame(
 
     # ── Draw ─────────────────────────────────────────
     annotated = draw_annotations(frame.copy(), hooks, lugs, pairs, threshold)
+    
+    # ── Cleanup ──────────────────────────────────────
+    del frame_small, detections, hooks, lugs
+    gc.collect()
 
     return annotated, alignment_results
 
@@ -167,8 +177,6 @@ class VideoProcessor:
     # ── Background worker ──────────────────────────────────────────────────
     def _run(self) -> None:
         cap = cv2.VideoCapture(self.video_path)
-        # Simple tip-position smoother (rolling mean)
-        tip_history: dict[int, deque] = {}   # pair_index → deque of (x,y)
 
         try:
             while self._running and cap.isOpened():
@@ -177,13 +185,14 @@ class VideoProcessor:
                     break
 
                 annotated, alignment = process_frame(frame, self.threshold, self.conf)
-
+                del frame  # Release frame memory immediately
+                
                 # Smooth tip positions over last N frames
                 for i, al in enumerate(alignment):
                     # (smoothing is already visual in the annotated frame)
                     pass
 
-                encode_params = [cv2.IMWRITE_JPEG_QUALITY, 82]
+                encode_params = [cv2.IMWRITE_JPEG_QUALITY, 65]
                 ok, jpeg = cv2.imencode(".jpg", annotated, encode_params)
                 if not ok:
                     continue
@@ -191,6 +200,13 @@ class VideoProcessor:
                 with self._lock:
                     self._frame_buf.append(jpeg.tobytes())
                     self._alignment_buf = alignment
+                
+                del annotated, jpeg
+                gc.collect()
+                
+                # Clear GPU memory
+                if torch is not None:
+                    torch.cuda.empty_cache()
 
                 # Frame rate limiter: target ~30 FPS
                 elapsed = time.time() - self._last_frame_time
@@ -252,7 +268,7 @@ def process_image():
 
     annotated, alignment_data = process_frame(frame, threshold, conf)
 
-    ok, buf = cv2.imencode(".jpg", annotated, [cv2.IMWRITE_JPEG_QUALITY, 92])
+    ok, buf = cv2.imencode(".jpg", annotated, [cv2.IMWRITE_JPEG_QUALITY, 75])
     if not ok:
         return jsonify({"error": "Failed to encode result"}), 500
 
@@ -273,6 +289,8 @@ def process_image():
                          else "NO DETECTION",
         }
     )
+    
+    gc.collect()
 
 
 @app.route("/upload_video", methods=["POST"])
@@ -355,12 +373,14 @@ def stop_video(vid_id: str):
 if __name__ == "__main__":
     import argparse
 
-    parser = argparse.ArgumentParser(description="SIGHT server")
+    parser = argparse.ArgumentParser(description="S.I.G.H.T. server")
     parser.add_argument("--model", default="best.pt",    help="Path to YOLOv8 weights")
     parser.add_argument("--host",  default="0.0.0.0",   help="Server host")
     parser.add_argument("--port",  default=5000, type=int, help="Server port")
     parser.add_argument("--debug", action="store_true",  help="Flask debug mode")
     args = parser.parse_args()
+
+    app.config["MODEL_PATH"] = args.model
 
     # Pre-warm the model
     print("[App] Pre-loading model...")

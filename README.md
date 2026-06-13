@@ -1,6 +1,6 @@
-# SIGHT
+# S.I.G.H.T.
 
-System for Intelligent Guidance of Hook Trajectory
+<strong>S</strong>ystem for <strong>I</strong>ntelligent <strong>G</strong>uidance of <strong>H</strong>ook <strong>T</strong>rajectory
 
 A production-ready web application for detecting and verifying the alignment between **hooks** and **lugs** using a hybrid **YOLOv8 + OpenCV** pipeline.
 
@@ -12,7 +12,7 @@ A production-ready web application for detecting and verifying the alignment bet
 hook_lug_app/
 ├── app.py              ← Flask web server + REST endpoints
 ├── detection.py        ← YOLOv8 inference wrapper
-├── tip_detection.py    ← Edge/contour-based hook tip localisation
+├── (tip_detection.py)  ← Deprecated: now we use synthetic hook anchor
 ├── alignment.py        ← Hook↔Lug matching + dx/dy alignment logic
 ├── visualization.py    ← OpenCV annotation drawing utilities
 ├── requirements.txt
@@ -38,15 +38,9 @@ Input Frame
     │           → lug  boxes (class 1)
     │
     ├──── For each HOOK ────────────────────────────────────────
-    │     [tip_detection.py]
-    │       1. Crop bounding box
-    │       2. Grayscale
-    │       3. Gaussian blur (5×5, σ=1.5)
-    │       4. Canny edge detection (low=30, high=100)
-    │       5. Restrict to lower 50% of crop
-    │       6. Find contours (RETR_EXTERNAL)
-    │       7. Select largest contour
-    │       8. Extract point with max-y → hook tip (x, y)
+    │     Synthetic anchor (stable):
+    │       • Compute bbox midpoint and shift slightly downward
+    │       • This deterministic anchor replaces tip-detection models
     │
     ├──── For each LUG ─────────────────────────────────────────
     │     lug_center = bbox centre (cx, cy)
@@ -55,14 +49,14 @@ Input Frame
     │     Hook i → nearest unmatched Lug j
     │
     ├──── Per pair: compute dx, dy ─────────────────────────────
-    │     dx = hook_tip_x - lug_center_x
-    │     dy = hook_tip_y - lug_center_y
+    │     dx = hook_anchor_x - lug_center_x
+    │     dy = hook_anchor_y - lug_center_y
     │     if |dx| < threshold AND |dy| < threshold → ALIGNED
     │     else → NOT ALIGNED + direction (Move Left/Right/Up/Down)
     │
     └──── [visualization.py]  Annotate frame ───────────────────
           • Bounding boxes (hook=amber, lug=steel-blue)
-          • Hook tip      (red dot)
+          • Hook anchor   (red dot)
           • Lug centre    (cyan dot)
           • Connecting line (green=aligned, red=not)
           • dx/dy label at midpoint
@@ -162,7 +156,7 @@ and poll `GET /video_status/<video_id>` for alignment data.
 |-------------|----------------------|---------|----------|------------------------------------|
 | Threshold   | Slider               | 30 px   | 5–150    | Pixel radius to call "aligned"     |
 | Confidence  | Slider               | 0.25    | 0.05–0.95| YOLO minimum detection confidence  |
-| Smoothing   | Slider (video only)  | 5       | 1–15     | Frames to average for tip position |
+| Smoothing   | Slider (video only)  | 5       | 1–15     | (DEPRECATED) Frames to average for tip position |
 
 ---
 
@@ -203,8 +197,6 @@ Your `best.pt` must detect exactly two classes:
 
 ## Extending
 
-**Custom tip direction** (e.g., hook points upward): change `np.argmax(points[:, 1])` to `np.argmin(points[:, 1])` in `tip_detection.py`.
-
-**Per-hook tracking across frames**: replace the per-frame processing in `VideoProcessor._run()` with a SORT/ByteTrack tracker to maintain consistent IDs and smoother tip traces.
+**Per-hook tracking across frames**: replace the per-frame processing in `VideoProcessor._run()` with a SORT/ByteTrack tracker to maintain consistent IDs and smoother anchor traces.
 
 **Multiple model support**: pass `model_path` as a form field to `/process_image` and use `HookLugDetector(model_path)` per request (with caching by path).
