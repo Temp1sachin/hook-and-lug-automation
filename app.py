@@ -1,7 +1,7 @@
 """
 app.py
 ------
-Flask web application for Hook-Lug Alignment Detection.
+Flask web application for SIGHT (System for Intelligent Guidance of Hook Trajectory).
 
 Endpoints
 ---------
@@ -345,7 +345,7 @@ def stop_video(vid_id: str):
 if __name__ == "__main__":
     import argparse
 
-    parser = argparse.ArgumentParser(description="Hook-Lug Alignment Detection Server")
+    parser = argparse.ArgumentParser(description="SIGHT server")
     parser.add_argument("--model", default="best.pt",    help="Path to YOLOv8 weights")
     parser.add_argument("--host",  default="0.0.0.0",   help="Server host")
     parser.add_argument("--port",  default=5000, type=int, help="Server port")

@@ -1,4 +1,6 @@
-# Hook-Lug Alignment Detection System
+# SIGHT
+
+System for Intelligent Guidance of Hook Trajectory
 
 A production-ready web application for detecting and verifying the alignment between **hooks** and **lugs** using a hybrid **YOLOv8 + OpenCV** pipeline.
 
