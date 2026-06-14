@@ -10,13 +10,13 @@ Matches hooks ↔ lugs and computes alignment status.
     - ALIGNED
     - NEARLY ALIGNED
     - NOT ALIGNED
-✔ Outputs dx/dy/distance in mm
+✔ Outputs dx/dy/distance in cm
 """
 
 import numpy as np
 
 
-LUG_REAL_WIDTH_MM = 110.0
+LUG_REAL_WIDTH_cm = 110.0
 
 
 # ──────────────────────────────────────────────────────────────
@@ -58,10 +58,10 @@ def _point_to_bbox_distance(point, bbox):
 
 
 # ──────────────────────────────────────────────────────────────
-def _pixel_scale_mm_per_px(lug: dict):
+def _pixel_scale_cm_per_px(lug: dict):
     x1, _, x2, _ = lug["bbox"]
     width_px = max(float(x2 - x1), 1.0)
-    return float(LUG_REAL_WIDTH_MM / width_px)
+    return float(LUG_REAL_WIDTH_cm / width_px)
 
 
 # ──────────────────────────────────────────────────────────────
@@ -108,15 +108,15 @@ def compute_alignment(hook, lug, threshold=30):
     lx1, ly1, lx2, ly2 = lug["bbox"]
 
     # ── Scaling ────────────────────────────────────────
-    mm_per_px = _pixel_scale_mm_per_px(lug)
-    threshold_mm = threshold * mm_per_px
+    cm_per_px = _pixel_scale_cm_per_px(lug)
+    threshold_cm = threshold * cm_per_px
 
     # ── Distance from lug box ──────────────────────────
     dx_px, dy_px, dist_px = _point_to_bbox_distance((tx, ty), lug["bbox"])
 
-    dx = dx_px * mm_per_px
-    dy = dy_px * mm_per_px
-    distance = dist_px * mm_per_px
+    dx = dx_px * cm_per_px
+    dy = dy_px * cm_per_px
+    distance = dist_px * cm_per_px
 
     # ───────────────────────────────────────────────────
     # 🔥 Dynamic tolerance (KEY PART)
@@ -147,7 +147,7 @@ def compute_alignment(hook, lug, threshold=30):
             "dx": round(dx, 1),
             "dy": round(dy, 1),
             "distance": round(distance, 1),
-            "units": "mm",
+            "units": "cm",
             "status": "ALIGNED",
             "direction": "Aligned",
         }
@@ -157,7 +157,7 @@ def compute_alignment(hook, lug, threshold=30):
             "dx": round(dx, 1),
             "dy": round(dy, 1),
             "distance": round(distance, 1),
-            "units": "mm",
+            "units": "cm",
             "status": "NEARLY ALIGNED",
             "direction": "Fine adjust",
         }
@@ -168,14 +168,14 @@ def compute_alignment(hook, lug, threshold=30):
     h_dir = ""
     v_dir = ""
 
-    if dx < -threshold_mm:
+    if dx < -threshold_cm:
         h_dir = "Move Right"
-    elif dx > threshold_mm:
+    elif dx > threshold_cm:
         h_dir = "Move Left"
 
-    if dy < -threshold_mm:
+    if dy < -threshold_cm:
         v_dir = "Move Down"
-    elif dy > threshold_mm:
+    elif dy > threshold_cm:
         v_dir = "Move Up"
 
     direction = " & ".join(filter(None, [h_dir, v_dir])) or "Adjust"
@@ -184,7 +184,7 @@ def compute_alignment(hook, lug, threshold=30):
         "dx": round(dx, 1),
         "dy": round(dy, 1),
         "distance": round(distance, 1),
-        "units": "mm",
+        "units": "cm",
         "status": "NOT ALIGNED",
         "direction": direction,
     }
